@@ -1,0 +1,8 @@
+name = viewshead
+description = Allows insertion of tags into the head of views pages from views fields.
+core = 6.x
+version = "0.2"
+core = "6.x"
+dependencies[] = views
+project = "viewshead"
+

@@ -1,0 +1,246 @@
+<?php
+
+/**
+ * @file
+ * viewshead allows insertion of tags into the head of the page
+ * based on a rewritten views field containing tokens. 
+ * Version 1 supports name= $namefromuser and content = $fieldvaluefromviews, delimiter or no delimiter determins if it is a list
+ * or singularity
+ */
+
+/**
+ *
+ * Implements views_api().
+ *
+ */
+
+function viewshead_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'viewshead'),
+  );
+}
+
+/**
+ * Implements views_preprocess_page().
+ *
+ */
+
+function viewshead_preprocess_page(&$vars) {
+  $obt = viewshead_headget();
+  foreach ($obt as $x) { 
+    drupal_set_html_head($x); 
+  }
+  $vars['head'] = drupal_get_html_head();
+  viewshead_clearcache();    //important note, counterintuitively, vars = drupal_get_html_head
+                             //is the "drupal way" to actually add recent calls to set_html_head into the head
+}
+
+//$config_array[] = array();
+
+/**
+ * Implements views_post_render().
+ *
+ */
+
+function viewshead_views_post_render($values) {
+/*
+ * Reserved for further coding.
+ * Some configuration settings to do or not do this based on path would be helpful for some users, surely
+
+  $path = $_GET['q'];
+  print $path;
+
+ *
+ */
+
+  viewshead_rend($values, $ores); 
+}
+
+/**
+ * Function viewshead_rend
+ *
+ * viewhead_rend was created to help clean up the code within views_post_render before code is added to 
+ * add any path or user based controls. It simple "rends" the fields and options and hands them to cachehelper,
+ * if they exist. 
+ */
+
+function viewshead_rend($values, $ores) {
+  $fieldtraps = array();
+
+/* Section retreives the relevant fields configuration options */
+/* Also demands some closer inspection for more effeciency */
+
+  foreach ($values->field as $fieldkey => $fieldvalue) {
+    foreach ($fieldvalue as $fvk => $fvv) {
+      switch ($fvk) {
+        case 'options':
+          foreach ($fvv as $optionskey => $optionsvalue) {
+            if ($optionskey === 'tohead') {
+              foreach ($optionsvalue as $ovk => $ovv) {
+                if ($ovk === 'metaname_value') { 
+                  $trapkey = $ovv;
+                }
+                if ($ovk === 'metaname_delimiter') {
+                  $trapdelim = $ovv; 
+                }
+              } //end foreach $optionsvalue
+             $fieldtraps[$fieldkey]['trapkey'] = $trapkey; 
+             $fieldtraps[$fieldkey]['trapdelim'] = $trapdelim;
+            } //end if $optionskey === tohead
+          } //end foreach $fvv 
+        break; //end case 'options'
+      } //end switch $fvk
+    } //end foreach $fieldvalue
+  } //end foreach $values->field
+
+/* Section correlates field options with rendered results */
+
+  if (is_object($values)) {
+    foreach ($values as $key => $value) {
+      if (is_object($value)) {
+        if (!empty($value->rendered_fields)) {
+          foreach ($value->rendered_fields as $ik => $iv) {  
+            foreach ($iv as $ikk => $ikv) {
+              if (array_key_exists($ikk, $fieldtraps)) { 
+               $fieldtrapkey = $fieldtraps[$ikk]['trapkey'];
+               $fieldtrapdelim = $fieldtraps[$ikk]['trapdelim']; 
+               viewshead_cachehelper(check_plain(strip_tags($ikv)), $fieldtrapkey, $fieldtrapdelim);
+              } // end if array_key_exists 
+            } // end foreach iv
+            reset($iv);
+          } //end foreach value->rendered_fields
+        } //end if !empty value->rendered_fields
+      } // end if is_object
+    } //end foreach values
+    reset($values);
+  } //end if is_object/is_array
+
+}       //end function viewshead_views_pre_render($values)
+
+/**
+ * Function viewshead_cachehelper
+ *
+ * viewshead_cachehelper determines if a field has a cache, what that cache's name is, and whether or not 
+ * the cache will continue to aggregate rendered fields into the cache. A delimiter means aggregate, no 
+ * delimiter means do not.
+ * $viewshead_namecache contains a list of per-request generated caches
+ * 
+ */
+
+function viewshead_cachehelper($rendered, $name, $delim) {
+   $viewshead_namecache = cache_get('viewshead_namecache', 'cache');
+   $oldnamecachedata = $viewshead_namecache->data;
+   $cachenames[] = array();
+   $cachenames = explode(' ', $oldnamecachedata);
+   $oldcache = cache_get('viewshead_' . $name, 'cache');
+   $oldcachedata = $oldcache->data;
+
+/* If no name-cache exists, create one */
+
+   if (!$oldnamecachedata) { 
+     cache_set('viewshead_namecache', $name, 'cache', 'CACHE_PERMANENT'); 
+   }
+
+/* If the name doesn't already have a cache, create one */
+
+   if (!strpos($oldnamecachedata, $name)) {
+     $newnamecachedata = $oldnamecachedata . ' ' . $name;
+     cache_set('viewshead_namecache', $newnamecachedata, 'cache', 'CACHE_PERMANENT');
+     foreach ($cachenames as $cachename) {
+/* 
+ * This if !$delim will cause a page-views name-colliding non delimiter field to override a block-views delimited
+ * field and occupy the whole tag.
+ *
+ */
+
+       if (!$delim) {
+         cache_set('viewshead_' . $name, $rendered, 'cache', 'CACHE_PERMANENT');
+       }
+/* This one recognizes the delimiter and doesn't forget it if we are re-using the same cache-name across blocks */
+
+       if (($delim) && empty($oldcachedata->data)) {
+         cache_set('viewshead_' . $name, $rendered, 'cache', 'CACHE_PERMANENT');
+       }
+
+/* This catenates the new rendered field into an existing cache. */
+
+     if (($delim) && !empty($oldcachedata->data)) {
+         cache_set('viewshead_' . $name, $oldcachedata->data . $delim . $rendered, 'cache', 'CACHE_PERMANENT');
+       }
+     }
+   }
+
+/* If it does exist, don't create a new one */
+
+   if (strpos($oldnamecachedata, $name)) {
+     cache_set('viewshead_namecache', $oldnamecachedata, 'cache', 'CACHE_PERMANENT');
+     foreach ($cachenames as $cachename) {
+       if (!$delim) {
+         cache_set('viewshead_' . $name, $rendered, 'cache', 'CACHE_PERMANENT');
+       }
+       if ($delim && empty($oldcachedata)) {
+         cache_set('viewshead_' . $name, $rendered, 'cache', 'CACHE_PERMANENT');
+       }
+       if ($delim && !empty($oldcachedata)) {
+         $newcachedata = $oldcachedata . $delim . $rendered;
+         cache_set('viewshead_' . $name, $newcachedata, 'cache', 'CACHE_PERMANENT');
+       }
+     }
+   }
+}
+
+/** 
+ * Function viewshead_clearcache
+ *
+ * Determines what caches exist in the viewhead space and clears all of them. This is called
+ * initially to ensure that each page request gets a fresh cache.
+ */
+
+function viewshead_clearcache() {
+  $viewshead_cache = cache_get('viewshead_namecache', 'cache');
+  $viewshead_caches[] = $viewshead_cache->data;
+  cache_clear_all('viewshead_namecache', 'cache');
+  foreach ($viewshead_caches as $name) {
+    cache_clear_all('viewshead_' . $name, 'cache');
+  }
+}
+
+/**
+ * Function viewshead_headget
+ *
+ * viewshead_headget should perhaps be renamed as it is really only returns data to the function which 
+ * actually calls set/get html head.
+ *
+ */
+
+function viewshead_headget() {
+  $viewshead_namecache = cache_get('viewshead_namecache', 'cache');
+  $finalnamecachedata = $viewshead_namecache->data;
+  $viewshead_caches[] = array();
+  $viewshead_caches = preg_split("[\s]", $finalnamecachedata, -1, PREG_SPLIT_DELIM_CAPTURE);
+  reset($viewshead_caches); // php quirk, related to explode 
+  $outboundtag = array();
+  foreach ($viewshead_caches as $name) {
+    if (!empty($name)) {
+      $oldcachedata = cache_get('viewshead_' . $name, 'cache');
+      $outboundtag[] = '<meta name="' . $name . '" content="' . $oldcachedata->data . '"/>';
+    }
+  }
+
+  return $outboundtag;
+}
+
+/**
+ * Implements hook_help().
+ *
+ */
+
+function viewshead_help($section) {
+  switch ($section) {
+    case 'admin/help#viewshead':
+      // Return a line-break version of the module README.txt
+      return filter_filter('process', 1, NULL, file_get_contents( dirname(__FILE__) . "/README.txt") );
+  }
+}
+

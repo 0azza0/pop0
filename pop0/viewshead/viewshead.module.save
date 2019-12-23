@@ -1,0 +1,197 @@
+<?php
+
+/**
+ * @file
+ * viewshead allows insertion of tags into the head of the page
+ * based on a rewritten views field containing tokens. 
+ * Version 1 supports name= $namefromuser and content = $fieldvaluefromviews, delimiter or no delimiter determins if it is a list
+ * or singularity
+ */
+
+function viewshead_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module','viewshead'),
+  );
+}
+
+function viewshead_preprocess_page(&$vars)
+{
+  $obt = viewshead_headget();
+  foreach($obt as $x) { drupal_set_html_head($x); }
+  $vars['head'] = drupal_get_html_head();
+  viewshead_clearcache();    //important note, counterintuitively, vars = drupal_get_html_head
+                             //is the "drupal way" to actually add recent calls to set_html_head into the head
+}
+
+$config_array[] = array();
+function viewshead_views_post_render($values)
+{
+  $trows = 0;
+  $tvid = 0;
+ 
+// Some configuration settings to do this based on path would be helpful for some users, surely
+//  $path = $_GET['q'];
+//  print $path;
+
+  $ores = 0; 
+
+  foreach ($values->result as $res => $oval) { 
+    $ores = $res;
+  }
+// Use of $ores is probably deprecated, but well see how this deals with cross-block
+//  viewshead_clearcache();
+  viewshead_rend($values,$ores); 
+}
+
+
+function viewshead_rend($values,$ores)
+{
+ $fieldtraps = array();
+ foreach ($values->field as $fieldkey => $fieldvalue) {
+  foreach ($fieldvalue as $fvk => $fvv) {
+   switch ($fvk) {
+    case 'options':
+     foreach($fvv as $optionskey => $optionsvalue) {
+      if ($optionskey === 'tohead') {
+       foreach ($optionsvalue as $ovk => $ovv) {
+         if ($ovk === 'metaname_value') 
+          { 
+           $trapkey = $ovv;
+          }
+         if ($ovk === 'metaname_delimiter') 
+          {
+           $trapdelim = $ovv; 
+          }
+         } //end foreach $optionsvalue
+        $fieldtraps[$fieldkey]['trapkey'] = $trapkey; 
+        $fieldtraps[$fieldkey]['trapdelim'] = $trapdelim;
+      } //end if $optionskey === tohead
+     } //end foreach $fvv 
+    break;
+   } //end switch $fvk
+  } //end foreach $fieldvalue
+ } //end foreach $values->field
+
+if(is_object($values)) {
+ foreach($values as $key => $value) {
+
+/*
+print '<br> key: '.$key.' value: '.$value;
+if($key === 'rendered_fields') {
+ foreach ($value as $ik => $iv) {
+*/
+
+  if(is_object($value)) {
+  foreach($value->rendered_fields as $ik => $iv){  
+
+   foreach ($iv as $ikk => $ikv) {
+     if (array_key_exists($ikk, $fieldtraps)) 
+     { 
+     $trapkey = $fieldtraps[$ikk]['trapkey'];
+     $delim = $fieldtraps[$ikk]['trapdelim']; 
+     viewshead_cachehelper(check_plain(strip_tags($ikv)),$trapkey,$trapdelim);
+     } // end if array_key_exists 
+     } // end foreach iv
+     reset($iv);
+   } //end foreach value
+  } // end if is_object
+  } //end foreach values
+  reset($values);
+} //end if is_object/is_array
+}       //end function viewshead_views_pre_render($values)
+
+function viewshead_cachehelper ($mylookipd, $name, $delim) 
+{
+   $viewshead_namecache = cache_get('viewshead_namecache','cache');
+   $oldnamecachedata = $viewshead_namecache->data;
+   $cachenames[] = array();
+   $cachenames = explode(' ',$oldnamecachedata);
+   $oldcache = cache_get('viewshead_'.$name,'cache');
+   $oldcachedata = $oldcache->data;
+
+   if(!$oldnamecachedata) 
+   { 
+     cache_set('viewshead_namecache',$name,'cache','CACHE_PERMANENT'); 
+   }
+   if(!strpos($oldnamecachedata,$name))
+   {
+    $newnamecachedata = $oldnamecachedata.' '.$name;
+    cache_set('viewshead_namecache',$newnamecachedata,'cache','CACHE_PERMANENT');
+if($delim) { print '<br> caught deli
+    foreach($cachenames as $cachename)
+    {
+     if(!$delim && empty($oldcachedata->data))
+       {
+         cache_set('viewshead_'.$name,$mylookipd,'cache','CACHE_PERMANENT');
+       }
+     if(!$delim && !empty($oldcachedata->data))
+       {
+         cache_set('viewshead_'.$name,$oldcachedata->data.$mylookipd,'cache','CACHE_PERMANENT');
+       }
+     if(($delim) && empty($oldcachedata->data))
+       {
+         cache_set('viewshead_'.$name,$mylookipd,'cache','CACHE_PERMANENT');
+       }
+     if(($delim) && !empty($oldcachedata->data))
+       {
+         cache_set('viewshead_'.$name,$oldcachedata->data.$delim.$mylookipd,'cache','CACHE_PERMANENT');
+       }
+    }
+   }
+   if(strpos($oldnamecachedata,$name))
+   {
+    cache_set('viewshead_namecache',$oldnamecachedata,'cache','CACHE_PERMANENT');
+    foreach($cachenames as $cachename)
+    {
+     if(!$delim && empty($oldcachedata))
+     {
+      cache_set('viewshead_'.$name,$mylookipd,'cache','CACHE_PERMANENT');
+     }
+     if(!$delim && !empty($oldcachedata))
+     {
+      $newcachedata = $oldcachedata.$mylookipd;
+      cache_set('viewshead_'.$name,$newcachedata,'cache','CACHE_PERMANENT');
+     }
+     if($delim && empty($oldcachedata))
+     {
+      cache_set('viewshead_'.$name,$mylookipd,'cache','CACHE_PERMANENT');
+     }
+     if($delim && !empty($oldcachedata))
+     {
+      $newcachedata = $oldcachedata.$delim.$mylookipd;
+      cache_set('viewshead_'.$name,$newcachedata,'cache','CACHE_PERMANENT');
+     }
+   }
+  }
+}
+
+function viewshead_clearcache() 
+{
+ $viewshead_cache = cache_get('viewshead_namecache','cache');
+ $viewshead_caches[] = $viewshead_cache->data;
+ cache_clear_all('viewshead_namecache','cache');
+ foreach($viewshead_caches as $name)
+ {
+ cache_clear_all('viewshead_'.$name,'cache');
+ }
+}
+
+function viewshead_headget()
+{
+  $viewshead_namecache = cache_get('viewshead_namecache','cache');
+  $finalnamecachedata = $viewshead_namecache->data;
+  $viewshead_caches[] = array();
+  $viewshead_caches = preg_split("[\s]",$finalnamecachedata,-1,PREG_SPLIT_DELIM_CAPTURE);
+  reset($viewshead_caches); // php quirk, related to explode 
+  $outboundtag = array();
+  foreach($viewshead_caches as $name) {
+    if(!empty($name))
+    {
+    $oldcachedata = cache_get('viewshead_'.$name,'cache');
+    $outboundtag[] = '<meta name="'.$name.'" content="'.$oldcachedata->data.'"/>';
+    }
+    }
+
+  return $outboundtag;
+}

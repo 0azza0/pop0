@@ -1,0 +1,12 @@
+<?php
+/**
+ * Implements module_install
+ *
+ *  9998 selected since another module, in my case, should run afterward.
+ *  TODO: Implement $bottom - 1 or some such logic.
+ */
+
+function viewshead_install() {
+  db_query("UPDATE {system} SET weight = %d WHERE name = 'viewshead'", 0);
+}
+?>
